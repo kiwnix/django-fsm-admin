@@ -8,7 +8,7 @@ from django.utils.translation import ugettext as _
 from django.utils.encoding import force_text
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.http import HttpResponseRedirect
-
+from django.core.exceptions import ValidationError
 
 class FSMTransitionMixin(object):
     """
@@ -158,24 +158,29 @@ class FSMTransitionMixin(object):
         available = self._is_transition_available(obj, transition, request)
         trans_func = getattr(obj, transition, None)
         if available and trans_func:
-            # Run the transition
             try:
-                # Attempt to pass in the request and by argument if using django-fsm-log
-                trans_func(request=request, by=request.user)
-            except TypeError:
+                # Run the transition
                 try:
-                    # Attempt to pass in the by argument if using django-fsm-log
-                    trans_func(by=request.user)
+                    # Attempt to pass in the request and by argument if using django-fsm-log
+                    trans_func(request=request, by=request.user)
                 except TypeError:
-                    # If the function does not have a by attribute, just call with no arguments
-                    trans_func()
-            new_state = self.display_fsm_field(obj, fsm_field_name)
+                    try:
+                        # Attempt to pass in the by argument if using django-fsm-log
+                        trans_func(by=request.user)
+                    except TypeError:
+                        # If the function does not have a by attribute, just call with no arguments
+                        trans_func()
+                new_state = self.display_fsm_field(obj, fsm_field_name)
+            except ValidationError as e:
+                messages.add_message(request,messages.ERROR,e.message)
+                msg_dict.update({'status': messages.ERROR})
+            else:
 
-            # Mark the fsm_field as changed in the form so it will be
-            # picked up when the change message is constructed
-            form.changed_data.append(fsm_field_name)
+                # Mark the fsm_field as changed in the form so it will be
+                # picked up when the change message is constructed
+                form.changed_data.append(fsm_field_name)
 
-            msg_dict.update({'new_state': new_state, 'status': messages.SUCCESS})
+                msg_dict.update({'new_state': new_state, 'status': messages.SUCCESS})
         else:
             msg_dict.update({'status': messages.ERROR})
 
